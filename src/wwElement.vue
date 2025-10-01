@@ -74,8 +74,12 @@
         <ul>
           <li>currentLocation: { lat, lng }</li>
           <li>calculatedZone: string (e.g., "7b")</li>
-          <li>minTemperature: number (°F)</li>
-          <li>availableStations: array (with quality indicators)</li>
+          <li>minTemperature: number (raw °F)</li>
+          <li>minTemperatureConverted: number (converted to selected unit)</li>
+          <li>temperatureUnitLabel: string (°F or °C)</li>
+          <li>availableStations: array (with quality indicators, km)</li>
+          <li>availableStationsConverted: array (with converted distances)</li>
+          <li>distanceUnitLabel: string (km or mi)</li>
           <li>selectedStation: object</li>
           <li>frostDates: { lastSpringFrost, firstFallFrost }</li>
           <li>calendarEvents: array (planting schedule)</li>
@@ -136,12 +140,44 @@ export default {
         defaultValue: null,
       });
 
+    const { value: minTemperatureConverted, setValue: setMinTemperatureConverted } =
+      wwLib.wwVariable.useComponentVariable({
+        uid: props.uid,
+        name: 'minTemperatureConverted',
+        type: 'number',
+        defaultValue: null,
+      });
+
+    const { value: temperatureUnitLabel, setValue: setTemperatureUnitLabel } =
+      wwLib.wwVariable.useComponentVariable({
+        uid: props.uid,
+        name: 'temperatureUnitLabel',
+        type: 'string',
+        defaultValue: '°F',
+      });
+
     const { value: availableStations, setValue: setAvailableStations } =
       wwLib.wwVariable.useComponentVariable({
         uid: props.uid,
         name: 'availableStations',
         type: 'array',
         defaultValue: [],
+      });
+
+    const { value: availableStationsConverted, setValue: setAvailableStationsConverted } =
+      wwLib.wwVariable.useComponentVariable({
+        uid: props.uid,
+        name: 'availableStationsConverted',
+        type: 'array',
+        defaultValue: [],
+      });
+
+    const { value: distanceUnitLabel, setValue: setDistanceUnitLabel } =
+      wwLib.wwVariable.useComponentVariable({
+        uid: props.uid,
+        name: 'distanceUnitLabel',
+        type: 'string',
+        defaultValue: 'km',
       });
 
     const { value: selectedStation, setValue: setSelectedStation } =
@@ -232,6 +268,9 @@ export default {
     const inputLongitude = computed(() => props.content?.inputLongitude);
     const autoCalculateOnLocationChange = computed(() => props.content?.autoCalculateOnLocationChange ?? true);
 
+    const temperatureUnit = computed(() => props.content?.temperatureUnit || 'F');
+    const distanceUnit = computed(() => props.content?.distanceUnit || 'km');
+
     const supabaseUrl = computed(() => props.content?.supabaseUrl || '');
     const supabaseAnonKey = computed(() => props.content?.supabaseAnonKey || '');
     const calculationMode = computed(() => props.content?.calculationMode || 'auto');
@@ -256,6 +295,60 @@ export default {
       if (s === 'error') return 'status-error';
       return 'status-idle';
     });
+
+    // ========================================
+    // CONVERSION UTILITIES
+    // ========================================
+
+    function convertTemperature(fahrenheit, toUnit) {
+      if (fahrenheit === null || fahrenheit === undefined) return null;
+      if (toUnit === 'C') {
+        return Math.round(((fahrenheit - 32) * 5 / 9) * 10) / 10;
+      }
+      return fahrenheit;
+    }
+
+    function convertDistance(kilometers, toUnit) {
+      if (kilometers === null || kilometers === undefined) return null;
+      if (toUnit === 'miles') {
+        return Math.round(kilometers * 0.621371 * 10) / 10;
+      }
+      return kilometers;
+    }
+
+    function getTemperatureUnitLabel(unit) {
+      return unit === 'C' ? '°C' : '°F';
+    }
+
+    function getDistanceUnitLabel(unit) {
+      return unit === 'miles' ? 'mi' : 'km';
+    }
+
+    // Update converted values when units or raw values change
+    watch(
+      () => [minTemperature.value, temperatureUnit.value],
+      () => {
+        const converted = convertTemperature(minTemperature.value, temperatureUnit.value);
+        setMinTemperatureConverted(converted);
+        setTemperatureUnitLabel(getTemperatureUnitLabel(temperatureUnit.value));
+      },
+      { immediate: true }
+    );
+
+    watch(
+      () => [availableStations.value, distanceUnit.value],
+      () => {
+        const stations = availableStations.value || [];
+        const converted = stations.map(station => ({
+          ...station,
+          distance: convertDistance(station.distance, distanceUnit.value),
+          distanceRaw: station.distance, // Keep original
+        }));
+        setAvailableStationsConverted(converted);
+        setDistanceUnitLabel(getDistanceUnitLabel(distanceUnit.value));
+      },
+      { immediate: true, deep: true }
+    );
 
     // ========================================
     // API FUNCTIONS
@@ -298,8 +391,8 @@ export default {
         };
 
         // Add optional enhancements
-        if (props.content?.userElevation !== null) {
-          payload.elevation = props.content.userElevation;
+        if (props.content?.userElevation !== null && props.content?.userElevation !== undefined) {
+          payload.elevation = props.content?.userElevation;
         }
 
         if (microclimateFactors.value) {
@@ -482,8 +575,8 @@ export default {
           radius: searchRadius.value,
         };
 
-        if (props.content?.userElevation !== null) {
-          payload.elevation = props.content.userElevation;
+        if (props.content?.userElevation !== null && props.content?.userElevation !== undefined) {
+          payload.elevation = props.content?.userElevation;
         }
 
         if (microclimateFactors.value) {
@@ -607,35 +700,78 @@ export default {
       { immediate: false }
     );
 
-    // Watch for action calls from WeWeb workflows
+    // Watch ALL properties that affect component behavior for real-time updates
     watch(
-      () => props.content?.triggerAction,
-      (action) => {
-        if (!action) return;
+      () => [
+        props.content?.supabaseUrl,
+        props.content?.supabaseAnonKey,
+        props.content?.calculationMode,
+        props.content?.searchRadius,
+        props.content?.stationLimit,
+        props.content?.analysisYears,
+        props.content?.userElevation,
+        props.content?.enableMicroclimate,
+        props.content?.nearWater,
+        props.content?.urbanArea,
+        props.content?.windExposed,
+        props.content?.southFacing,
+        props.content?.autoCalculateOnLocationChange,
+        props.content?.autoCalculateOnLoad,
+        props.content?.temperatureUnit,
+        props.content?.distanceUnit,
+      ],
+      () => {
+        // Configuration changed - clear error state
+        if (errorMessage.value) {
+          setErrorMessage('');
+          setErrorSuggestions([]);
+        }
 
-        console.log('Action triggered:', action);
-
-        switch (action.name) {
-          case 'requestGeolocation':
-            handleRequestGeolocation();
-            break;
-          case 'calculateForLocation':
-            if (action.params?.lat && action.params?.lng) {
-              handleCalculateForLocation(action.params.lat, action.params.lng);
-            }
-            break;
-          case 'selectStation':
-            if (action.params?.stationId) {
-              handleSelectStation(action.params.stationId);
-            }
-            break;
-          case 'clearResults':
-            handleClearResults();
-            break;
+        // If we have a current location and auto-calculate is on, recalculate
+        // (but not for unit changes - those are handled by separate watchers)
+        if (
+          currentLocation.value?.lat &&
+          currentLocation.value?.lng &&
+          autoCalculateOnLocationChange.value &&
+          status.value === 'success'
+        ) {
+          // Recalculate with new settings after a small delay
+          setTimeout(() => {
+            console.log('Recalculating due to property change');
+            calculateHardiness(currentLocation.value.lat, currentLocation.value.lng);
+          }, 100);
         }
       },
       { deep: true }
     );
+
+    // ========================================
+    // WEWEB ACTIONS REGISTRATION
+    // ========================================
+
+    // Register actions to be callable from WeWeb workflows
+    wwLib.wwAction.registerActions(props.uid, [
+      {
+        name: 'requestGeolocation',
+        label: 'Request Geolocation',
+        fn: handleRequestGeolocation,
+      },
+      {
+        name: 'calculateForLocation',
+        label: 'Calculate for Location',
+        fn: ({ lat, lng }) => handleCalculateForLocation(lat, lng),
+      },
+      {
+        name: 'selectStation',
+        label: 'Select Station',
+        fn: ({ stationId }) => handleSelectStation(stationId),
+      },
+      {
+        name: 'clearResults',
+        label: 'Clear Results',
+        fn: handleClearResults,
+      },
+    ]);
 
     // ========================================
     // LIFECYCLE
@@ -652,6 +788,9 @@ export default {
 
     onBeforeUnmount(() => {
       console.log('USDA Hardiness Zone Finder unmounted');
+
+      // Unregister actions on unmount
+      wwLib.wwAction.unregisterActions(props.uid);
     });
 
     return {
@@ -663,7 +802,11 @@ export default {
       currentLocation,
       calculatedZone,
       minTemperature,
+      minTemperatureConverted,
+      temperatureUnitLabel,
       availableStations,
+      availableStationsConverted,
+      distanceUnitLabel,
       selectedStation,
       frostDates,
       calendarEvents,
@@ -674,7 +817,7 @@ export default {
       errorSuggestions,
       statusClass,
 
-      // Actions
+      // Actions (for editor preview buttons)
       handleRequestGeolocation,
       handleCalculateForLocation,
       handleSelectStation,

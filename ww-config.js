@@ -81,6 +81,49 @@ export default {
       /* wwEditor:end */
     },
 
+    // === UNITS ===
+    temperatureUnit: {
+      label: { en: "Temperature Unit" },
+      type: "TextSelect",
+      section: "settings",
+      options: {
+        options: [
+          { value: "F", label: "Fahrenheit (°F)" },
+          { value: "C", label: "Celsius (°C)" }
+        ]
+      },
+      defaultValue: "F",
+      bindable: true,
+      /* wwEditor:start */
+      bindingValidation: {
+        type: "string",
+        tooltip: "Valid values: F | C"
+      },
+      propertyHelp: "Choose temperature display unit"
+      /* wwEditor:end */
+    },
+
+    distanceUnit: {
+      label: { en: "Distance Unit" },
+      type: "TextSelect",
+      section: "settings",
+      options: {
+        options: [
+          { value: "km", label: "Kilometers (km)" },
+          { value: "miles", label: "Miles (mi)" }
+        ]
+      },
+      defaultValue: "km",
+      bindable: true,
+      /* wwEditor:start */
+      bindingValidation: {
+        type: "string",
+        tooltip: "Valid values: km | miles"
+      },
+      propertyHelp: "Choose distance display unit"
+      /* wwEditor:end */
+    },
+
     // === CALCULATION MODE ===
     calculationMode: {
       label: { en: "Calculation Mode" },
